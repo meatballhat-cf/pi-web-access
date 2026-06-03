@@ -1,6 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+// Cloudflare AI Gateway helpers live in gemini-cloudflare.ts. Import them here
+// so existing call sites in this file and sibling modules don't need to change.
+import { isCloudflareGateway } from "./gemini-cloudflare.js";
+export { isCloudflareGateway } from "./gemini-cloudflare.js";
 
 const DEFAULT_API_HOST = "https://generativelanguage.googleapis.com";
 const API_VERSION = "v1beta";
@@ -73,6 +77,9 @@ function normalizeBaseUrl(value: unknown): string | null {
  * 1. `GOOGLE_GEMINI_BASE_URL` env var (matches the official Gemini CLI)
  * 2. `geminiBaseUrl` in ~/.pi/web-search.json
  * 3. Google's default endpoint
+ *
+ * NOTE: Exported for use by cloudflare.ts — prefer the higher-level helpers
+ * in that module for Cloudflare AI Gateway detection and auth.
  */
 export function getApiHost(): string {
 	return (
@@ -91,14 +98,6 @@ export function getVersionedApiBase(): string {
 }
 
 /**
- * Returns true when the configured API host is a Cloudflare AI Gateway endpoint.
- * Detected purely from the URL — no hardcoded config keys.
- */
-function isCloudflareGateway(): boolean {
-	return getApiHost().includes("gateway.ai.cloudflare.com");
-}
-
-/**
  * Returns the `?key=<apiKey>` query param string, or an empty string when
  * the request should use header-based auth instead (e.g. Cloudflare AI Gateway).
  */
@@ -108,7 +107,7 @@ export function buildKeyParam(apiKey: string | null): string {
 }
 
 /**
- * Returns the Cloudflare API key for gateway auth.
+ * Returns the Cloudflare AI Gateway API key for static gateway auth.
  * Resolution order: CLOUDFLARE_API_KEY env var, then cloudflareApiKey in config.
  */
 export function getCloudflareApiKey(): string | null {
@@ -116,8 +115,8 @@ export function getCloudflareApiKey(): string | null {
 }
 
 /**
- * Returns true when a Cloudflare AI Gateway is configured and a gateway token is available.
- * In this case, no Gemini API key is required.
+ * Returns true when a Cloudflare AI Gateway is configured and a static
+ * gateway API key is available. In this case, no Gemini API key is required.
  */
 export function isGatewayConfigured(): boolean {
 	return isCloudflareGateway() && getCloudflareApiKey() !== null;
@@ -125,9 +124,9 @@ export function isGatewayConfigured(): boolean {
 
 /**
  * Returns any additional auth headers required for the current API host.
- * For Cloudflare AI Gateway, this is `cf-aig-authorization: Bearer <token>`
- * using the Cloudflare API key (matching how pi core handles the same gateway).
+ * For Cloudflare AI Gateway with a static key, returns `cf-aig-authorization`.
  * For the default Google endpoint, returns an empty object.
+ * Use buildAuthHeadersAsync() to also pick up dynamic providers (e.g. cloudflared JWT).
  */
 export function buildAuthHeaders(): Record<string, string> {
 	if (isCloudflareGateway()) {
@@ -137,8 +136,32 @@ export function buildAuthHeaders(): Record<string, string> {
 	return {};
 }
 
+/**
+ * Optional override for auth header resolution.
+ * When set (e.g. by the extension on session_start for cloudflared-based CF Access auth),
+ * buildAuthHeadersAsync() uses this instead of the static key lookup.
+ */
+let _dynamicAuthHeadersFn: (() => Promise<Record<string, string>>) | null = null;
+
+/**
+ * Register a dynamic auth header provider. Call this from the extension entry
+ * point when static API key resolution is insufficient (e.g. cloudflared CF Access JWT).
+ */
+export function setDynamicAuthHeaders(fn: () => Promise<Record<string, string>>): void {
+	_dynamicAuthHeadersFn = fn;
+}
+
+/**
+ * Async variant of buildAuthHeaders(). Prefers the dynamic provider when set,
+ * falls back to the static key lookup.
+ */
+export async function buildAuthHeadersAsync(): Promise<Record<string, string>> {
+	if (_dynamicAuthHeadersFn) return _dynamicAuthHeadersFn();
+	return buildAuthHeaders();
+}
+
 export function isGeminiApiAvailable(): boolean {
-	return getApiKey() !== null || isGatewayConfigured();
+	return getApiKey() !== null || isGatewayConfigured() || _dynamicAuthHeadersFn !== null;
 }
 
 export interface GeminiApiOptions {
@@ -181,7 +204,7 @@ export async function queryGeminiApiWithVideo(
 
 	const res = await fetch(url, {
 		method: "POST",
-		headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
+		headers: { "Content-Type": "application/json", ...await buildAuthHeadersAsync() },
 		body: JSON.stringify(body),
 		signal,
 	});

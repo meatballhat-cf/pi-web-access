@@ -6,7 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added `GOOGLE_GEMINI_BASE_URL` env var and `geminiBaseUrl` config key to route Gemini API requests through a compatible gateway (e.g. Cloudflare AI Gateway, LiteLLM, Helicone). Matches the env var name used by the official Gemini CLI. Takes precedence: env var > config > Google default endpoint.
-- Added `CLOUDFLARE_API_KEY` env var and `cloudflareApiKey` config key for Cloudflare AI Gateway authentication (`cf-aig-authorization` header), matching how pi core handles the same gateway. Automatically activated when the configured host contains `gateway.ai.cloudflare.com`.
+- Added `CLOUDFLARE_API_KEY` env var and `cloudflareApiKey` config key for Cloudflare AI Gateway static key authentication (`cf-aig-authorization` header), matching how pi core handles the same gateway. Automatically activated when the configured host is recognised as a Cloudflare AI Gateway endpoint.
+- Added `CLOUDFLARE_AI_GATEWAY_GOOGLE_GEMINI_HOSTS` env var (comma-separated) to configure which hostnames are treated as Cloudflare AI Gateway endpoints. Defaults to `gateway.ai.cloudflare.com`.
+- Added `cloudflared` CF Access JWT support for Cloudflare AI Gateway authentication. When the configured host is a Cloudflare AI Gateway endpoint and no static `CLOUDFLARE_API_KEY` is set, a short-lived `cf-access-token` JWT is acquired via `cloudflared access token` on `session_start` and refreshed automatically. Requires `cloudflared` on PATH.
+- Added `CLOUDFLARE_AI_GATEWAY_ACCESS_APP_URL` env var to configure the CF Access application URL passed to `cloudflared`. Defaults to the origin of the configured gateway host.
+- Extracted all Cloudflare AI Gateway logic into `gemini-cloudflare.ts`.
 
 ### Fixed
 - Split `API_BASE` into `DEFAULT_API_HOST` + `API_VERSION` constants so gateway base URL overrides do not require users to include the version segment (`/v1beta`). `API_BASE` is kept as a deprecated export for backward compatibility.

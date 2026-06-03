@@ -35,7 +35,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { isPerplexityAvailable } from "./perplexity.js";
 import { isExaAvailable } from "./exa.js";
-import { isGeminiApiAvailable } from "./gemini-api.js";
+import { isGeminiApiAvailable, setDynamicAuthHeaders } from "./gemini-api.js";
+import { isCloudflareGateway, setupCloudflareAccessAuth } from "./gemini-cloudflare.js";
 import { getActiveGoogleEmail, isGeminiWebAvailable } from "./gemini-web.js";
 import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
 
@@ -1068,6 +1069,11 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 	});
+
+	// If the Gemini API is routed through Cloudflare AI Gateway, acquire a
+	// short-lived CF Access JWT via cloudflared and register it as the dynamic
+	// auth header provider. Token is cached and refreshed on each session_start.
+	setupCloudflareAccessAuth(pi, setDynamicAuthHeaders);
 
 	pi.on("session_start", async (_event, ctx) => handleSessionChange(ctx));
 	pi.on("session_tree", async (_event, ctx) => handleSessionChange(ctx));

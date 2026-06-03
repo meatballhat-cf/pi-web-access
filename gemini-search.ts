@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { activityMonitor } from "./activity.js";
-import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeaders, isGatewayConfigured, DEFAULT_MODEL } from "./gemini-api.js";
+import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeadersAsync, isGatewayConfigured, isGeminiApiAvailable, DEFAULT_MODEL } from "./gemini-api.js";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.js";
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.js";
 import { hasExaApiKey, isExaAvailable, searchWithExa } from "./exa.js";
@@ -193,7 +193,7 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 
 async function searchWithGeminiApi(query: string, options: SearchOptions = {}): Promise<SearchResponse | null> {
 	const apiKey = getApiKey();
-	if (!apiKey && !isGatewayConfigured()) return null;
+	if (!isGeminiApiAvailable()) return null;
 
 	const activityId = activityMonitor.logStart({ type: "api", query });
 
@@ -206,7 +206,7 @@ async function searchWithGeminiApi(query: string, options: SearchOptions = {}): 
 
 		const res = await fetch(`${getVersionedApiBase()}/models/${model}:generateContent${buildKeyParam(apiKey)}`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
+			headers: { "Content-Type": "application/json", ...await buildAuthHeadersAsync() },
 			body: JSON.stringify(body),
 			signal: AbortSignal.any([
 				AbortSignal.timeout(60000),
